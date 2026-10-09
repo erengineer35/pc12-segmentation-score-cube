@@ -1,0 +1,1278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PC12 segmentation score cube</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#EDF1EF; --panel:#FFFFFF; --panel-2:#F6F8F7; --ink:#14201C; --muted:#5A6B65;
+  --line:#D5DDDA; --accent:#178A4E; --accent-ink:#FFFFFF; --focus:#0B6BCB; --bad:#B4432A;
+  --empty:#E3E9E6; --stage-a:#DCE4E0; --stage-b:#F3F6F4; --hatch:#D3DCD8;
+  --font:"Figtree",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --dur:620ms; --ease:cubic-bezier(.2,.8,.2,1);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1614; --panel:#17211E; --panel-2:#1C2824; --ink:#E4ECE8; --muted:#93A59E;
+    --line:#2C3A35; --accent:#3BC57C; --accent-ink:#06150D; --focus:#6AB0FF; --bad:#F08A6C;
+    --empty:#1F2A27; --stage-a:#0A100E; --stage-b:#16201D; --hatch:#2A3633;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1614; --panel:#17211E; --panel-2:#1C2824; --ink:#E4ECE8; --muted:#93A59E;
+  --line:#2C3A35; --accent:#3BC57C; --accent-ink:#06150D; --focus:#6AB0FF; --bad:#F08A6C;
+  --empty:#1F2A27; --stage-a:#0A100E; --stage-b:#16201D; --hatch:#2A3633;
+}
+@media (prefers-reduced-motion:reduce){ :root{ --dur:1ms; } }
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.45}
+.wrap{max-width:1440px;margin:0 auto;padding:20px 20px 48px}
+header.top{display:flex;gap:24px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px}
+h1{font-size:1.6rem;font-weight:700;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0;max-width:66ch}
+.status{font-size:.85rem;color:var(--muted);margin-top:6px}
+.status b{color:var(--ink);font-weight:600}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+button{font:inherit;font-size:.9rem;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:7px 12px;border-radius:8px;cursor:pointer}
+button:hover{border-color:var(--muted)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+select,input,textarea{font:inherit;font-size:.9rem;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:6px 8px}
+
+.controls{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:12px 20px;align-items:flex-end}
+.ctl{display:flex;flex-direction:column;gap:4px}
+.ctl label{font-size:.78rem;color:var(--muted)}
+.chk{display:flex;gap:6px;align-items:center;font-size:.88rem}
+
+/* ---------- 3D scene ---------- */
+.scene{position:relative;height:clamp(460px,70vh,780px);border-radius:16px;overflow:hidden;border:1px solid var(--line);
+  background:radial-gradient(120% 90% at 50% 40%,var(--stage-b),var(--stage-a));perspective:1500px;perspective-origin:50% 45%;
+  touch-action:none;user-select:none;-webkit-user-select:none}
+.scene.dragging{cursor:grabbing}
+.scene[data-view="cube"]{cursor:grab}
+.stage{position:absolute;left:50%;top:50%;width:0;height:0;transform-style:preserve-3d;transition:transform var(--dur) var(--ease)}
+.stage.instant,.stage.instant .slice{transition:none !important}
+.slice{position:absolute;transform-style:flat;border-radius:12px;border:1px solid color-mix(in srgb,var(--ink) 18%,transparent);
+  background:color-mix(in srgb,var(--panel) 72%,transparent);box-shadow:0 10px 30px rgba(0,0,0,.12);
+  transition:transform var(--dur) var(--ease),opacity var(--dur) var(--ease),border-color .2s;padding:10px;display:flex;flex-direction:column;gap:8px;cursor:pointer}
+.slice.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent),0 14px 36px rgba(0,0,0,.18)}
+.slice-label{display:flex;justify-content:space-between;gap:8px;font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden}
+.slice-label span{color:var(--muted);font-weight:500}
+.heat{flex:1;display:grid;gap:2px;min-height:0}
+.hc{border-radius:2px;background:var(--empty)}
+.hc.has{background:color-mix(in srgb,var(--accent) var(--t,0%),var(--panel))}
+.hc.na{background:repeating-linear-gradient(135deg,var(--hatch) 0 2px,transparent 2px 6px)}
+.hud{position:absolute;left:14px;bottom:12px;right:14px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:.8rem;color:var(--muted);pointer-events:none}
+.hud b{color:var(--ink);font-weight:600}
+.scene-btns{position:absolute;top:12px;right:12px;display:flex;gap:6px;z-index:3}
+.scene-btns button{background:color-mix(in srgb,var(--panel) 88%,transparent);font-size:.82rem;padding:5px 10px}
+.scene-btns button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+
+/* ---------- focus overlay ---------- */
+.focusview{position:absolute;inset:0;background:var(--panel);opacity:0;pointer-events:none;transition:opacity .22s ease;display:flex;flex-direction:column;z-index:4}
+.focusview.show{opacity:1;pointer-events:auto}
+.fv-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--line)}
+.fv-title{font-weight:700;font-size:1rem;margin:0 6px;min-width:0}
+.fv-title small{display:block;font-weight:500;font-size:.75rem;color:var(--muted)}
+.fv-spacer{flex:1}
+.fv-body{flex:1;overflow-x:auto;overflow-y:hidden}
+.fv-dots{display:flex;gap:5px;align-items:center}
+.fv-dots i{width:8px;height:8px;border-radius:50%;background:var(--line);display:block;cursor:pointer}
+.fv-dots i.on{background:var(--accent)}
+
+table.cube{border-collapse:separate;border-spacing:0;min-width:100%}
+.cube th{font-weight:600;font-size:.82rem;text-align:left;padding:9px 10px;background:var(--panel-2);border-bottom:1px solid var(--line);white-space:nowrap}
+.cube thead th{position:sticky;top:0;z-index:1}
+.cube th.rowh{position:sticky;left:0;z-index:1;border-right:1px solid var(--line);max-width:220px;white-space:normal}
+.cube th.corner{z-index:2;color:var(--muted);font-weight:500}
+.cube th.info{cursor:help;text-decoration:underline dotted color-mix(in srgb,var(--muted) 60%,transparent);text-underline-offset:3px}
+.cube td{padding:3px;border-bottom:1px solid var(--line);vertical-align:top}
+.cell{min-width:150px;border-radius:8px;padding:7px 9px;cursor:pointer;border:2px solid transparent;background:var(--empty);height:100%;position:relative}
+.cell.has{background:color-mix(in srgb,var(--accent) var(--t,0%),var(--panel))}
+.cell.na{background:repeating-linear-gradient(135deg,var(--hatch) 0 2px,transparent 2px 7px);cursor:default}
+.cell:focus{outline:none;border-color:var(--focus)}
+.cell.pinned::after{content:"";position:absolute;top:6px;right:6px;width:7px;height:7px;border-radius:50%;background:var(--focus)}
+.cell .m{display:grid;grid-template-columns:52px 1fr auto;gap:6px;align-items:center;font-size:.78rem;line-height:1.5}
+.cell .m .k{color:var(--muted)}
+.cell .m .v{font-variant-numeric:tabular-nums;font-weight:600;text-align:right}
+.cell .m .bar{height:4px;border-radius:2px;background:color-mix(in srgb,var(--ink) 12%,transparent);overflow:hidden}
+.cell .m .bar i{display:block;height:100%;background:var(--ink);opacity:.6}
+.cell .m.sel .k{color:var(--ink);font-weight:600}
+.cell .foot{font-size:.72rem;color:var(--muted);margin-top:3px;display:flex;justify-content:space-between;gap:6px}
+.cell .none{font-size:.8rem;color:var(--muted);padding:12px 0;text-align:center}
+.cell.na .none{color:var(--muted);background:var(--panel);border-radius:4px;padding:2px 6px;display:inline-block;margin:10px auto;font-size:.72rem}
+
+/* ---------- below the stage ---------- */
+.below{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px;margin-top:14px}
+@media (max-width:900px){.below{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+.card h2{font-size:.95rem;margin:0 0 8px;font-weight:700}
+.card p{margin:0;font-size:.85rem;color:var(--muted)}
+.tray{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.pin{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--panel-2)}
+.pin-h{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}
+.pin-name{font-weight:600;font-size:.85rem}
+.pin-sub{color:var(--muted);font-size:.75rem;margin-bottom:6px}
+.pin .m{display:grid;grid-template-columns:62px 1fr 52px;gap:6px;align-items:center;font-size:.78rem;margin-top:3px}
+.pin .bar{height:6px;border-radius:3px;background:color-mix(in srgb,var(--ink) 10%,transparent);overflow:hidden}
+.pin .bar i{display:block;height:100%;background:var(--accent)}
+.pin .v{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.pin .m.win .v{color:var(--accent)}
+button.x{border:0;background:none;padding:0 2px;color:var(--muted);font-size:1rem;line-height:1}
+.rank{list-style:none;margin:0;padding:0;counter-reset:r}
+.rank li{counter-increment:r;display:grid;grid-template-columns:20px 1fr auto;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:.83rem;cursor:pointer}
+.rank li:first-child{border-top:0}
+.rank li::before{content:counter(r);color:var(--muted);font-variant-numeric:tabular-nums}
+.rank li:hover .rk-name{text-decoration:underline}
+.rk-name{font-weight:600}
+.rk-sub{color:var(--muted);font-size:.76rem}
+.rk-v{font-variant-numeric:tabular-nums;font-weight:600}
+.keys{font-size:.8rem;color:var(--muted);display:grid;grid-template-columns:auto 1fr;gap:5px 12px;align-items:baseline}
+.keys dt{white-space:nowrap}
+.keys dd{margin:0}
+kbd{font:inherit;font-size:.75rem;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--panel);color:var(--ink)}
+
+.tip{position:fixed;z-index:40;pointer-events:none;background:var(--ink);color:var(--panel);font-size:.78rem;line-height:1.4;padding:7px 9px;border-radius:7px;max-width:280px;display:none;box-shadow:0 6px 20px rgba(0,0,0,.2)}
+.tip b{display:block;font-weight:600}
+.tip .t-sub{opacity:.75}
+
+/* ---------- drawers ---------- */
+.drawer{position:fixed;top:0;right:0;height:100%;width:min(520px,100%);background:var(--panel);border-left:1px solid var(--line);
+  box-shadow:-12px 0 40px rgba(0,0,0,.18);transform:translateX(105%);transition:transform .22s ease;z-index:20;display:flex;flex-direction:column;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.drawer.open{transform:none}
+.drawer-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.drawer-head h2{margin:0;font-size:1.05rem}
+.drawer-body{padding:14px 18px;overflow-y:auto;flex:1}
+.combo{font-size:.85rem;color:var(--muted);margin-top:3px}
+.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.summary div{background:var(--panel-2);border-radius:8px;padding:8px 10px}
+.summary .lbl{font-size:.75rem;color:var(--muted)}
+.summary .val{font-size:1.15rem;font-weight:700;font-variant-numeric:tabular-nums}
+.summary .sd{font-size:.75rem;color:var(--muted)}
+table.runs{width:100%;border-collapse:collapse;font-size:.8rem}
+.runs th,.runs td{padding:6px 5px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.runs td.num{text-align:right;font-variant-numeric:tabular-nums}
+.runs .note{color:var(--muted);font-size:.75rem}
+.tag{font-size:.7rem;border:1px solid var(--line);border-radius:4px;padding:0 4px;color:var(--muted)}
+button.link{border:0;background:none;padding:0;color:var(--bad);font-size:.78rem;cursor:pointer}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+.form .full{grid-column:1/-1}
+.form .ctl input,.form .ctl textarea{width:100%}
+.form h3{grid-column:1/-1;font-size:.88rem;margin:8px 0 0}
+.msg{font-size:.85rem;margin-top:10px;min-height:1.2em}
+.msg.err{color:var(--bad)}
+.msg.ok{color:var(--accent)}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:22px;text-align:center;color:var(--muted);font-size:.88rem}
+.drop.over{border-color:var(--accent);color:var(--ink)}
+pre.tpl{background:var(--panel-2);border-radius:8px;padding:10px;font-size:.75rem;overflow-x:auto;white-space:pre}
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:15;display:none}
+.scrim.show{display:block}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:8px 14px;border-radius:8px;font-size:.85rem;z-index:30;display:none}
+.toast.show{display:block}
+.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
+@media (max-width:820px){.metrics{grid-template-columns:minmax(0,1fr)}}
+.metric{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:10px;padding:10px 12px}
+.metric-h{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.metric-name{font-weight:700;font-size:.95rem}
+.metric-dir{font-size:.75rem;color:var(--muted);white-space:nowrap}
+.metric p{margin:4px 0 0;font-size:.82rem;color:var(--muted)}
+.about{margin-top:28px}
+.about > h2{font-size:1.2rem;margin:0 0 4px}
+.about > p.lead{color:var(--muted);margin:0 0 14px;max-width:72ch}
+.about-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+@media (max-width:900px){.about-grid{grid-template-columns:minmax(0,1fr)}}
+.about .card h3{font-size:.95rem;margin:0 0 8px}
+.about .card p,.about .card li{font-size:.85rem;color:var(--ink);line-height:1.55}
+.about .card p{margin:0 0 8px}
+.about .card ul{margin:0;padding-left:18px}
+.about .card li{margin-bottom:5px}
+.about .muted{color:var(--muted)}
+.formula{font-variant-numeric:tabular-nums;background:var(--panel-2);border-radius:6px;padding:6px 9px;margin:4px 0 8px;font-size:.82rem;overflow-x:auto;white-space:nowrap}
+.deflist{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:.85rem;margin:0}
+.deflist dt{font-weight:600;white-space:nowrap}
+.deflist dd{margin:0}
+.wide{grid-column:1/-1}
+.mtab{width:100%;border-collapse:collapse;font-size:.83rem}
+.mtab th,.mtab td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.mtab th{color:var(--muted);font-weight:600;font-size:.78rem}
+.pill{display:inline-block;font-size:.72rem;border-radius:999px;padding:1px 8px;border:1px solid var(--line);white-space:nowrap}
+.pill.zs{border-color:var(--muted);color:var(--muted)}
+.pill.tr{border-color:var(--accent);color:var(--accent)}
+.info-box{font-size:.82rem;background:var(--panel-2);border-radius:8px;padding:8px 10px;margin-bottom:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>PC12 segmentation score cube</h1>
+      <p class="sub">Model × preprocess × loss. Drag the cube to rotate it, click a layer to open it. Every cell is the mean of all runs for that combination.</p>
+      <div class="status" id="status">Connecting to the shared table…</div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="btnAdd">Add result</button>
+      <button id="btnImport">Import CSV</button>
+      <button id="btnExport">Export CSV</button>
+    </div>
+  </header>
+
+  <section class="metrics" aria-label="Metrics in every cell">
+    <div class="metric"><div class="metric-h"><span class="metric-name">Soma F1 @ IoU 0.5</span><span class="metric-dir">↑ higher is better · 0–1</span></div>
+      <p>Are the cell bodies found and separated? Instance-level F1, a match needs IoU ≥ 0.5.</p></div>
+    <div class="metric"><div class="metric-h"><span class="metric-name">Neurite clDice</span><span class="metric-dir">↑ higher is better · 0–1</span></div>
+      <p>Are the neurites traced as connected lines? Skeleton-based overlap that punishes breaks.</p></div>
+    <div class="metric"><div class="metric-h"><span class="metric-name">Neurite length error</span><span class="metric-dir">↓ lower is better · %</span></div>
+      <p>Is the biological readout right? Relative error of total neurite length per image.</p></div>
+  </section>
+
+  <div class="controls">
+    <div class="ctl"><label for="axRow">Rows</label><select id="axRow"></select></div>
+    <div class="ctl"><label for="axCol">Columns</label><select id="axCol"></select></div>
+    <div class="ctl"><label for="axLayer">Layers</label><select id="axLayer"></select></div>
+    <div class="ctl"><label for="colorBy">Colour by</label><select id="colorBy"></select></div>
+    <div class="ctl"><label for="fTeam">Team</label><select id="fTeam"></select></div>
+    <div class="ctl"><label for="fTrain">Training images</label><select id="fTrain"></select></div>
+    <label class="chk"><input type="checkbox" id="hideEmpty"> Hide empty rows and columns</label>
+  </div>
+
+  <div class="scene" id="scene" data-view="cube" tabindex="0" aria-label="Score cube. Rotate with the arrow keys, press Enter to lay out the layers.">
+    <div class="stage" id="stage"></div>
+    <div class="scene-btns" id="sceneBtns">
+      <button id="btnCube" type="button">Cube</button>
+      <button id="btnSpread" type="button">All layers</button>
+      <button id="btnResetView" type="button">Reset view</button>
+    </div>
+    <div class="hud"><span id="hudL"></span><span id="hudR"></span></div>
+
+    <div class="focusview" id="focusview" aria-hidden="true">
+      <div class="fv-head">
+        <button id="fvBack" type="button">All layers</button>
+        <button id="fvPrev" type="button" aria-label="Previous layer">‹</button>
+        <div class="fv-title" id="fvTitle"></div>
+        <button id="fvNext" type="button" aria-label="Next layer">›</button>
+        <div class="fv-dots" id="fvDots"></div>
+        <div class="fv-spacer"></div>
+        <button id="fvBest" type="button" aria-pressed="false" title="Each cell shows the best result along the layer axis">Best across layers</button>
+      </div>
+      <div class="fv-body" id="fvBody"><table class="cube" id="cube" role="grid" aria-label="Skor tablosu"></table></div>
+    </div>
+  </div>
+
+  <div class="below">
+    <div class="card">
+      <h2>Compare</h2>
+      <div class="tray" id="tray"></div>
+      <p id="trayEmpty">Pin a cell with <kbd>P</kbd> or from its detail panel; up to 3 combinations appear side by side.</p>
+    </div>
+    <div class="card">
+      <h2 id="rankTitle">Top combinations</h2>
+      <ol class="rank" id="rank"></ol>
+      <p id="rankEmpty">Combinations are ranked here as results come in.</p>
+    </div>
+    <div class="card">
+      <h2>Shortcuts</h2>
+      <dl class="keys">
+        <dt>Cube</dt><dd>Drag or <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> to rotate, scroll to zoom, <kbd>Enter</kbd> to lay out the layers</dd>
+        <dt>All layers</dt><dd><kbd>←</kbd><kbd>→</kbd> select, <kbd>Enter</kbd> open, <kbd>Esc</kbd> back to the cube</dd>
+        <dt>Open layer</dt><dd>Arrows move between cells, <kbd>Q</kbd><kbd>E</kbd> neighbouring layer, <kbd>B</kbd> best across layers, <kbd>P</kbd> pin, <kbd>Enter</kbd> runs, <kbd>Esc</kbd> back</dd>
+        <dt>Anywhere</dt><dd><kbd>R</kbd> rotate the axes, <kbd>1</kbd>–<kbd>9</kbd> jump to a layer</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <h2>Reading the cells</h2>
+      <p>Each cell shows the mean of its runs for the three metrics; the bar is the value relative to the best and worst cell in the whole cube. Hatched cells are not applicable: zero-shot models only live in the "None (zero-shot)" layer, trained models only in the loss layers. Hover a model name to see its source.</p>
+    </div>
+  </div>
+
+  <section class="about" aria-labelledby="aboutTitle">
+    <h2 id="aboutTitle">About this benchmark</h2>
+    <p class="lead">All three teams run the same task with different methods. Everything below is fixed so that every run in the cube can be compared with every other run.</p>
+    <div class="about-grid">
+      <div class="card">
+        <h3>Soma F1 @ IoU 0.5</h3>
+        <p>Predicted soma instances are matched one-to-one to ground-truth instances; a pair counts as a match only if its intersection-over-union is at least 0.5. Matched pairs are true positives (TP), unmatched predictions false positives (FP), unmatched ground-truth somata false negatives (FN).</p>
+        <div class="formula">F1 = 2·TP / (2·TP + FP + FN)</div>
+        <p class="muted">Tells whether each cell body is detected and kept separate from its neighbours. Merged or split cells both lower it.</p>
+      </div>
+      <div class="card">
+        <h3>Neurite clDice</h3>
+        <p>Both neurite masks are reduced to one-pixel skeletons (S) and compared with the other mask's volume (V), following Shit et al., CVPR 2021.</p>
+        <div class="formula">Tprec = |S<sub>pred</sub> ∩ V<sub>gt</sub>| / |S<sub>pred</sub>| &nbsp;·&nbsp; Tsens = |S<sub>gt</sub> ∩ V<sub>pred</sub>| / |S<sub>gt</sub>| &nbsp;·&nbsp; clDice = 2·Tprec·Tsens / (Tprec + Tsens)</div>
+        <p class="muted">Rewards connected centrelines and is insensitive to how thick a neurite is drawn, which plain Dice is not.</p>
+      </div>
+      <div class="card">
+        <h3>Neurite length error</h3>
+        <p>L is the total skeleton length of all neurites in an image, in µm.</p>
+        <div class="formula">error = |L<sub>pred</sub> − L<sub>gt</sub>| / L<sub>gt</sub> × 100 %</div>
+        <p class="muted">The metric closest to what the lab will report. A segmentation can look good and still get the length wrong.</p>
+      </div>
+      <div class="card">
+        <h3>Evaluation protocol</h3>
+        <ul>
+          <li>One locked test split for everyone. Hyperparameters are chosen on the validation split, never on test.</li>
+          <li>One shared evaluation script. Teams submit masks; the script computes the metrics.</li>
+          <li>Metrics are computed per test image and averaged; that average is one run.</li>
+          <li>Scoring at native resolution; predictions are resized back before scoring.</li>
+          <li>Same ground-truth version (write it in the run's note), same training budget for trained models, same post-processing unless post-processing is what is being tested.</li>
+          <li>Record the seed; final candidates get at least three seeds.</li>
+        </ul>
+      </div>
+      <div class="card wide">
+        <h3>Models</h3>
+        <div style="overflow-x:auto"><table class="mtab" id="modelTable"><thead><tr><th>Model</th><th>Type</th><th>Family</th><th>Source</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card">
+        <h3>Preprocessing</h3>
+        <dl class="deflist">
+          <dt>Raw</dt><dd>Intensities as acquired, only scaled to the model's input range.</dd>
+          <dt>Percentile norm.</dt><dd>Clip to low and high intensity percentiles, rescale to 0–1.</dd>
+          <dt>CLAHE</dt><dd>Contrast-limited adaptive histogram equalisation; brings out faint neurites.</dd>
+          <dt>Background subtraction</dt><dd>Removes uneven illumination (rolling ball or top-hat).</dd>
+          <dt>Denoise</dt><dd>Noise reduction before segmentation.</dd>
+        </dl>
+        <p class="muted" style="margin-top:8px">Parameters for each step are fixed in the shared config and identical for every model.</p>
+      </div>
+      <div class="card">
+        <h3>Loss functions</h3>
+        <dl class="deflist">
+          <dt>None (zero-shot)</dt><dd>The model is used as released, no training.</dd>
+          <dt>BCE + Dice</dt><dd>Standard pixel-wise plus overlap loss; the baseline.</dd>
+          <dt>Focal + Dice</dt><dd>Focuses on hard pixels; helps when neurites are a tiny fraction of the image.</dd>
+          <dt>Dice + clDice</dt><dd>Adds the topology term above to the training objective.</dd>
+          <dt>Tversky</dt><dd>Weights missed pixels more than extra ones, favouring recall on thin structures.</dd>
+          <dt>Model default</dt><dd>The loss the original authors train the model with.</dd>
+        </dl>
+      </div>
+      <div class="card wide">
+        <h3>Adding results</h3>
+        <p>Use <b>Add result</b> for single runs or <b>Import CSV</b> for many. CSV columns: <code>team, model, preprocess, loss, seed, train_n, soma_f1, cldice, len_err, notes</code>. Comma or semicolon separators and decimal commas are accepted; rows whose model and loss don't fit together are skipped. Results written to the shared table are visible to everyone the page is shared with, and writing needs Contributor access or higher.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="tip" id="tip" role="tooltip"></div>
+
+<section class="drawer" id="dDetail" aria-label="Cell detail">
+  <div class="drawer-head"><div><h2 id="detTitle">Runs</h2><div class="combo" id="detCombo"></div></div><button data-close>Close</button></div>
+  <div class="drawer-body" id="detBody"></div>
+</section>
+
+<section class="drawer" id="dAdd" aria-label="Add result">
+  <div class="drawer-head"><div><h2>Add result</h2><div class="combo">The result of one experiment run. A value that is not in the list is added as a new option.</div></div><button data-close>Close</button></div>
+  <div class="drawer-body">
+    <div class="form">
+      <div class="ctl"><label for="iTeam">Team</label><input id="iTeam" list="dlTeam" autocomplete="off"></div>
+      <div class="ctl"><label for="iSeed">Seed</label><input id="iSeed" inputmode="numeric" placeholder="e.g. 0"></div>
+      <div class="ctl full"><label for="iModel">Model</label><input id="iModel" list="dlModel" autocomplete="off"></div>
+      <div class="ctl"><label for="iPre">Preprocess</label><input id="iPre" list="dlPre" autocomplete="off"></div>
+      <div class="ctl"><label for="iLoss">Loss</label><input id="iLoss" list="dlLoss" autocomplete="off"></div>
+      <div class="ctl"><label for="iTrain">Training images</label><input id="iTrain" inputmode="numeric" placeholder="0 for zero-shot"></div>
+      <div class="ctl"></div>
+      <h3>Metrics</h3>
+      <div class="ctl"><label for="iF1">Soma F1 @ IoU 0.5 (0–1)</label><input id="iF1" inputmode="decimal"></div>
+      <div class="ctl"><label for="iCl">Neurite clDice (0–1)</label><input id="iCl" inputmode="decimal"></div>
+      <div class="ctl"><label for="iLen">Neurite length error (%)</label><input id="iLen" inputmode="decimal"></div>
+      <div class="ctl full"><label for="iNote">Note</label><textarea id="iNote" rows="2" placeholder="commit, config file, observations…"></textarea></div>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:8px"><button class="primary" id="btnSave">Save</button><button data-close>Cancel</button></div>
+    <div class="msg" id="addMsg" role="status"></div>
+  </div>
+</section>
+
+<section class="drawer" id="dImport" aria-label="Import CSV">
+  <div class="drawer-head"><div><h2>Import CSV</h2><div class="combo">One run per row. Comma or semicolon separated.</div></div><button data-close>Close</button></div>
+  <div class="drawer-body">
+    <div class="drop" id="drop">Drop a CSV file here or <button id="btnPick" type="button">choose a file</button>
+      <input type="file" id="fileInput" accept=".csv,text/csv" hidden></div>
+    <div class="msg" id="impMsg" role="status"></div>
+    <div id="impActions" style="display:none;gap:8px;margin-top:8px;flex-wrap:wrap">
+      <button class="primary" id="btnImpShared">Write to the shared table</button>
+      <button id="btnImpLocal">Show in this session only</button>
+    </div>
+    <h3 style="font-size:.88rem;margin:18px 0 6px">Expected columns</h3>
+    <pre class="tpl" id="tpl"></pre>
+    <button id="btnTpl">Download empty template</button>
+  </div>
+</section>
+
+<datalist id="dlTeam"></datalist><datalist id="dlModel"></datalist><datalist id="dlPre"></datalist><datalist id="dlLoss"></datalist>
+<div class="toast" id="toast" role="status"></div>
+<script>
+(function(){
+"use strict";
+
+/* ================= configuration ================= */
+var DIMS = ["model","preprocess","loss"];
+var DIM_LABEL = {model:"Model", preprocess:"Preprocess", loss:"Loss"};
+var ZS_LOSS = "None (zero-shot)";
+var MODEL_INFO = {
+  "Classical: Otsu-watershed + Sato": {family:"Classical image processing", zeroShot:true, src:"Otsu 1979 (soma); Sato et al. 1998, ridge filter (neurites)"},
+  "Cellpose-SAM": {family:"Cellpose + SAM encoder", zeroShot:true, src:"Pachitariu, Rariden & Stringer 2025, bioRxiv"},
+  "Cellpose-SAM FT": {family:"Cellpose + SAM encoder", zeroShot:false, src:"Pachitariu, Rariden & Stringer 2025, bioRxiv"},
+  "micro-sam (AIS)": {family:"SAM adapted to microscopy", zeroShot:true, src:"Archit et al., Nature Methods 2025"},
+  "micro-sam FT": {family:"SAM adapted to microscopy", zeroShot:false, src:"Archit et al., Nature Methods 2025"},
+  "Grounding DINO + SAM2": {family:"Natural-image foundation models", zeroShot:true, src:"Liu et al. 2024 (Grounding DINO); Ravi et al. 2024 (SAM2)"},
+  "SAM2 LoRA FT": {family:"SAM2, parameter-efficient fine-tuning", zeroShot:false, src:"Ravi et al. 2024; LoRA + clDice approach: Khazem 2026 (TopoLoRA-SAM)"},
+  "Multi-head U-Net (ImageNet)": {family:"Our own model", zeroShot:false, src:"In-house design (ADR 0003), ImageNet-pretrained encoder"},
+  "nnU-Net": {family:"Self-configuring U-Net", zeroShot:false, src:"Isensee et al., Nature Methods 2021"}
+};
+var DEFAULTS = {
+  model:Object.keys(MODEL_INFO),
+  preprocess:["Raw","Percentile norm.","CLAHE","Background subtraction","Denoise"],
+  loss:[ZS_LOSS,"BCE + Dice","Focal + Dice","Dice + clDice","Tversky","Model default"]
+};
+var DEFAULT_TEAMS = ["Team A","Team B","Team C"];
+var METRICS = [
+  {key:"somaF1", label:"Soma F1", short:"F1", better:"high", min:0, max:1, fmt:function(v){return v.toFixed(3);}},
+  {key:"clDice", label:"Neurite clDice", short:"clDice", better:"high", min:0, max:1, fmt:function(v){return v.toFixed(3);}},
+  {key:"lenErr", label:"Neurite length error", short:"Len. err", better:"low", min:0, max:Infinity, fmt:function(v){return v.toFixed(1)+"%";}}
+];
+var CSV_COLS = ["team","model","preprocess","loss","seed","train_n","soma_f1","cldice","len_err","notes"];
+var CSV_ALIASES = {team:["team","takim","takım"],model:["model"],preprocess:["preprocess","onisleme","ön işleme"],loss:["loss"],
+  seed:["seed"],train_n:["train_n","trainn","egitim","eğitim","n_train"],soma_f1:["soma_f1","somaf1","f1"],cldice:["cldice","cl_dice"],
+  len_err:["len_err","lenerr","uzunluk_hatasi","length_error"],notes:["notes","not","note","notlar"]};
+
+/* ================= state ================= */
+var S = {
+  dbRuns:[], localRuns:[], pendingImport:[],
+  assign:{row:"model", col:"preprocess", layer:"loss"},
+  layerIdx:0, best:false, colorBy:"somaF1",
+  fTeam:"", fTrain:"", hideEmpty:false,
+  focus:{r:0,c:0}, pins:[],
+  view:"cube", rot:{rx:-18, ry:-32}, zoom:1, hover:-1, busy:false,
+  db:null, canWrite:null, uid:null, dl:null, dbState:"connecting", detailKey:null
+};
+var C = {aggs:{}, vals:{}, rows:[], cols:[], layers:[], norm:{}};
+var G = {W:380, H:300, sw:0, sh:0};
+
+/* ================= helpers ================= */
+function $(id){return document.getElementById(id);}
+function el(tag, cls, text){var e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e;}
+function num(x){ if(x==null) return null; var s=String(x).trim().replace("%",""); if(s==="") return null; s=s.replace(",","."); var v=Number(s); return isFinite(v)?v:null; }
+function str(x){ return x==null ? "" : String(x).trim(); }
+function toast(t){ var e=$("toast"); e.textContent=t; e.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(function(){e.classList.remove("show");},2600); }
+function keyOf(m,p,l){ return m+"\u0001"+p+"\u0001"+l; }
+function splitKey(k){ var p=k.split("\u0001"); return {model:p[0],preprocess:p[1],loss:p[2]}; }
+function mean(a){ return a.reduce(function(s,v){return s+v;},0)/a.length; }
+function sd(a){ if(a.length<2) return null; var m=mean(a); return Math.sqrt(a.reduce(function(s,v){return s+(v-m)*(v-m);},0)/(a.length-1)); }
+function better(m,a,b){ return m.better==="high" ? a>b : a<b; }
+function metricBy(k){ for(var i=0;i<METRICS.length;i++) if(METRICS[i].key===k) return METRICS[i]; return METRICS[0]; }
+function dur(){ var v=getComputedStyle(document.documentElement).getPropertyValue("--dur").trim(); var n=parseFloat(v); return v.indexOf("ms")>=0?n:n*1000; }
+function applicable(c){ var info=MODEL_INFO[c.model]; if(!info) return true; var zs=c.loss===ZS_LOSS; return info.zeroShot ? zs : !zs; }
+
+var LEGACY={"Yok (zero-shot)":"None (zero-shot)","Model varsayılanı":"Model default","Ham":"Raw","Arka plan çıkarma":"Background subtraction",
+  "Klasik: Otsu-watershed + Sato":"Classical: Otsu-watershed + Sato","Takım A":"Team A","Takım B":"Team B","Takım C":"Team C"};
+function legacy(v){ v=str(v); return LEGACY[v]||v; }
+function normalizeRun(r){
+  return { id:r.id, _src:r._src, team:legacy(r.team), model:legacy(r.model), preprocess:legacy(r.preprocess), loss:legacy(r.loss),
+    seed:r.seed==null||r.seed===""?null:num(r.seed), trainN:r.trainN==null||r.trainN===""?null:num(r.trainN),
+    somaF1:num(r.somaF1), clDice:num(r.clDice), lenErr:num(r.lenErr), notes:str(r.notes), createdAt:str(r.createdAt), by:str(r.by) };
+}
+function allRuns(){ return S.dbRuns.concat(S.localRuns); }
+
+/* ================= data model ================= */
+function compute(){
+  var runs = allRuns().filter(function(r){
+    if(!r.model||!r.preprocess||!r.loss) return false;
+    if(S.fTeam && r.team!==S.fTeam) return false;
+    if(S.fTrain!=="" && String(r.trainN)!==S.fTrain) return false;
+    return true;
+  });
+  var aggs = {};
+  runs.forEach(function(r){
+    var k=keyOf(r.model,r.preprocess,r.loss);
+    if(!aggs[k]) aggs[k]={model:r.model,preprocess:r.preprocess,loss:r.loss,runs:[]};
+    aggs[k].runs.push(r);
+  });
+  Object.keys(aggs).forEach(function(k){
+    var a=aggs[k];
+    METRICS.forEach(function(m){
+      var vs=a.runs.map(function(r){return r[m.key];}).filter(function(v){return v!=null;});
+      a[m.key]=vs.length?mean(vs):null; a[m.key+"_sd"]=vs.length?sd(vs):null; a[m.key+"_n"]=vs.length;
+    });
+  });
+  C.aggs=aggs;
+  var vals={};
+  DIMS.forEach(function(d){
+    var seen={}, list=[];
+    DEFAULTS[d].forEach(function(v){ if(!seen[v]){seen[v]=1;list.push(v);} });
+    allRuns().forEach(function(r){ var v=r[d]; if(v&&!seen[v]){seen[v]=1;list.push(v);} });
+    if(S.hideEmpty){ var used={}; runs.forEach(function(r){used[r[d]]=1;}); var f=list.filter(function(v){return used[v];}); if(f.length) list=f; }
+    vals[d]=list;
+  });
+  C.vals=vals; C.rows=vals[S.assign.row]; C.cols=vals[S.assign.col]; C.layers=vals[S.assign.layer];
+  if(S.layerIdx>=C.layers.length) S.layerIdx=Math.max(0,C.layers.length-1);
+  if(S.focus.r>=C.rows.length) S.focus.r=Math.max(0,C.rows.length-1);
+  if(S.focus.c>=C.cols.length) S.focus.c=Math.max(0,C.cols.length-1);
+  var norm={};
+  METRICS.forEach(function(m){
+    var vs=Object.keys(aggs).map(function(k){return aggs[k][m.key];}).filter(function(v){return v!=null;});
+    norm[m.key]=vs.length?{lo:Math.min.apply(null,vs),hi:Math.max.apply(null,vs)}:null;
+  });
+  C.norm=norm;
+}
+function score01(m,v){ var n=C.norm[m.key]; if(v==null||!n) return null; if(n.hi===n.lo) return 1; var t=(v-n.lo)/(n.hi-n.lo); return m.better==="high"?t:1-t; }
+function combo(rv,cv,lv){ var o={}; o[S.assign.row]=rv; o[S.assign.col]=cv; o[S.assign.layer]=lv; return o; }
+function aggAt(rv,cv,lv){ var c=combo(rv,cv,lv); return C.aggs[keyOf(c.model,c.preprocess,c.loss)]||null; }
+function cellAgg(rv,cv,layerIdx,best){
+  if(!best){ var lv=C.layers[layerIdx]; return {agg:aggAt(rv,cv,lv), layer:lv, na:!applicable(combo(rv,cv,lv))}; }
+  var m=metricBy(S.colorBy), bA=null, bL=null, anyApplicable=false;
+  C.layers.forEach(function(lv){
+    if(applicable(combo(rv,cv,lv))) anyApplicable=true;
+    var a=aggAt(rv,cv,lv); if(!a) return;
+    if(!bA){bA=a;bL=lv;return;}
+    if(a[m.key]!=null&&(bA[m.key]==null||better(m,a[m.key],bA[m.key]))){bA=a;bL=lv;}
+  });
+  return {agg:bA, layer:bL, na:!anyApplicable};
+}
+
+/* ================= 3D scene ================= */
+var stage=$("stage"), scene=$("scene");
+function measure(){
+  if(S.view!=="focus"){ G.sw=scene.clientWidth; G.sh=scene.clientHeight; }
+  var w=Math.max(200,Math.min(G.sw*0.40,420));
+  var rows=Math.max(1,C.rows.length), cols=Math.max(1,C.cols.length);
+  var h=w*Math.min(1.25,Math.max(0.55,rows/cols*0.62));
+  if(h>G.sh*0.62){ h=G.sh*0.62; }
+  G.W=Math.round(w); G.H=Math.round(h);
+}
+function buildScene(){
+  measure();
+  stage.textContent="";
+  var sel=metricBy(S.colorBy);
+  C.layers.forEach(function(lv,i){
+    var s=el("div","slice"); s.dataset.i=i;
+    s.style.width=G.W+"px"; s.style.height=G.H+"px"; s.style.left=(-G.W/2)+"px"; s.style.top=(-G.H/2)+"px";
+    var lab=el("div","slice-label"); lab.appendChild(document.createTextNode(lv));
+    var n=0; C.rows.forEach(function(rv){ C.cols.forEach(function(cv){ var a=aggAt(rv,cv,lv); if(a) n+=a.runs.length; }); });
+    lab.appendChild(el("span",null,n?n+(n===1?" run":" runs"):"empty")); s.appendChild(lab);
+    var heat=el("div","heat");
+    heat.style.gridTemplateColumns="repeat("+C.cols.length+",1fr)"; heat.style.gridTemplateRows="repeat("+C.rows.length+",1fr)";
+    C.rows.forEach(function(rv,ri){ C.cols.forEach(function(cv,ci){
+      var c=el("div","hc"); c.dataset.r=ri; c.dataset.c=ci; c.dataset.i=i;
+      if(!applicable(combo(rv,cv,lv))) c.classList.add("na");
+      else { var a=aggAt(rv,cv,lv); if(a){ var t=score01(sel,a[sel.key]); c.classList.add("has"); c.style.setProperty("--t",t==null?"6%":Math.round(10+t*80)+"%"); } }
+      heat.appendChild(c);
+    }); });
+    s.appendChild(heat);
+    s.style.transform=sliceTransform(i); s.style.opacity=sliceOpacity(i);
+    stage.appendChild(s);
+  });
+  markSel();
+}
+function spreadGrid(){
+  var L=Math.max(1,C.layers.length);
+  var nc = L<=3 ? L : (L<=8 ? Math.ceil(L/2) : Math.ceil(Math.sqrt(L)));
+  var nr = Math.ceil(L/nc), gap=18;
+  var s = Math.min((G.sw*0.92-(nc-1)*gap)/(nc*G.W), (G.sh*0.80-(nr-1)*gap)/(nr*G.H), 1);
+  return {nc:nc,nr:nr,s:s,gap:gap};
+}
+function spreadPos(i){
+  var g=spreadGrid(), r=Math.floor(i/g.nc), c=i%g.nc;
+  var inRow = (r===g.nr-1) ? (C.layers.length-r*g.nc) : g.nc;
+  var x=(c-(inRow-1)/2)*(G.W*g.s+g.gap), y=(r-(g.nr-1)/2)*(G.H*g.s+g.gap)-G.sh*0.03;
+  return {x:x,y:y,s:g.s};
+}
+function sliceTransform(i){
+  var L=C.layers.length;
+  if(S.view==="cube"){
+    var depth=Math.min(G.W*0.9, 70*(L-1)), z = L>1 ? (i-(L-1)/2)*(depth/(L-1)) : 0;
+    var lift = (i===S.hover) ? -26 : 0;
+    return "translate3d(0,"+lift+"px,"+(-z)+"px)";
+  }
+  var p=spreadPos(i);
+  if(S.view==="spread"){
+    var up = (i===S.layerIdx) ? -6 : 0;
+    return "translate3d("+p.x+"px,"+(p.y+up)+"px,0) scale("+p.s+")";
+  }
+  // focus
+  if(i===S.layerIdx){
+    var fs=Math.min(G.sw/G.W, G.sh/G.H);
+    return "translate3d(0,0,0) scale("+fs+")";
+  }
+  return "translate3d("+(p.x*1.8)+"px,"+(p.y*1.8)+"px,-700px) scale("+p.s+")";
+}
+function sliceOpacity(i){
+  if(S.view==="focus") return i===S.layerIdx?"1":"0";
+  if(S.view==="cube" && S.hover>=0 && i!==S.hover) return "0.55";
+  return "1";
+}
+function stageTransform(){
+  if(S.view==="cube") return "rotateX("+S.rot.rx+"deg) rotateY("+S.rot.ry+"deg) scale("+S.zoom+")";
+  return "rotateX(0deg) rotateY(0deg) scale(1)";
+}
+function markSel(){
+  stage.querySelectorAll(".slice").forEach(function(s){ s.classList.toggle("sel", S.view!=="cube" && Number(s.dataset.i)===S.layerIdx); });
+}
+function applyTransforms(){
+  stage.style.transform=stageTransform();
+  stage.querySelectorAll(".slice").forEach(function(s){ var i=Number(s.dataset.i); s.style.transform=sliceTransform(i); s.style.opacity=sliceOpacity(i); });
+  markSel();
+  scene.dataset.view=S.view;
+  updateHud();
+}
+function instant(fn){ stage.classList.add("instant"); fn(); void stage.offsetWidth; stage.classList.remove("instant"); }
+function updateHud(){
+  var l=$("hudL"), r=$("hudR"); l.textContent=""; r.textContent="";
+  var b=el("b",null,DIM_LABEL[S.assign.layer]); 
+  if(S.view==="cube"){
+    l.appendChild(document.createTextNode("Layer axis: ")); l.appendChild(b);
+    l.appendChild(document.createTextNode(" · rows "+DIM_LABEL[S.assign.row]+", columns "+DIM_LABEL[S.assign.col]));
+    r.textContent="Drag: rotate · Scroll: zoom · Click a layer: open";
+  } else if(S.view==="spread"){
+    l.appendChild(b); l.appendChild(document.createTextNode(": "+(C.layers[S.layerIdx]||"")+" ("+(S.layerIdx+1)+"/"+C.layers.length+")"));
+    r.textContent="Click a layer · Esc: back to the cube";
+  }
+  $("btnCube").setAttribute("aria-pressed",String(S.view==="cube"));
+  $("btnSpread").setAttribute("aria-pressed",String(S.view==="spread"));
+  $("btnResetView").hidden = S.view!=="cube";
+  $("sceneBtns").style.display = S.view==="focus" ? "none" : "flex";
+}
+
+/* ---------- view transitions ---------- */
+var fv=$("focusview");
+function setView(v, opts){
+  opts=opts||{};
+  if(S.busy && !opts.force) return;
+  var from=S.view;
+  if(from===v){ applyTransforms(); return; }
+  hideTip();
+  if(from==="focus"){
+    fv.classList.remove("show"); fv.setAttribute("aria-hidden","true");
+    stage.style.visibility="visible";
+    scene.style.height=""; G.sw=scene.clientWidth; G.sh=scene.clientHeight;
+  }
+  S.hover=-1;
+  if(from==="cube" && v==="focus"){
+    // cube -> spread -> focus, chained so the slices visibly separate first
+    S.view="spread"; applyTransforms(); S.busy=true;
+    setTimeout(function(){ S.busy=false; setView("focus",{force:true}); }, dur()*0.85);
+    return;
+  }
+  if(from==="focus" && v==="cube"){
+    S.view="spread"; applyTransforms(); S.busy=true;
+    setTimeout(function(){ S.busy=false; setView("cube",{force:true}); }, dur()*0.85);
+    return;
+  }
+  S.view=v; applyTransforms();
+  if(v==="focus"){
+    S.busy=true;
+    setTimeout(function(){
+      S.busy=false;
+      if(S.view!=="focus") return;
+      renderTable(); renderFocusHead();
+      fv.classList.add("show"); fv.setAttribute("aria-hidden","false"); fitFocus();
+      setTimeout(function(){ if(S.view==="focus"){ stage.style.visibility="hidden"; focusCell(); } }, 230);
+    }, dur());
+  } else {
+    scene.focus({preventScroll:true});
+  }
+}
+function openLayer(i){ S.layerIdx=i; S.best=false; setView("focus"); }
+
+/* ---------- pointer: rotate, zoom, hover, click ---------- */
+var drag=null;
+scene.addEventListener("pointerdown",function(e){
+  if(S.view==="focus" || e.target.closest("button")) return;
+  drag={x:e.clientX,y:e.clientY,rx:S.rot.rx,ry:S.rot.ry,moved:false,id:e.pointerId};
+});
+scene.addEventListener("pointermove",function(e){
+  if(drag && S.view==="cube"){
+    var dx=e.clientX-drag.x, dy=e.clientY-drag.y;
+    if(!drag.moved && Math.abs(dx)+Math.abs(dy)>5){ drag.moved=true; scene.classList.add("dragging"); stage.classList.add("instant"); try{scene.setPointerCapture(drag.id);}catch(_){} hideTip(); }
+    if(drag.moved){
+      S.rot.ry=drag.ry+dx*0.35; S.rot.rx=Math.max(-80,Math.min(80,drag.rx-dy*0.35));
+      stage.style.transform=stageTransform();
+      return;
+    }
+  }
+  if(S.view!=="focus" && !(drag&&drag.moved)) hoverAt(e);
+});
+function endDrag(e){
+  if(!drag) return;
+  var wasDrag=drag.moved; drag=null;
+  scene.classList.remove("dragging"); stage.classList.remove("instant");
+  if(wasDrag) return;
+  var s=e.target.closest && e.target.closest(".slice");
+  if(!s) return;
+  var i=Number(s.dataset.i);
+  if(S.view==="cube"){ S.layerIdx=i; setView("spread"); }
+  else if(S.view==="spread"){ openLayer(i); }
+}
+scene.addEventListener("pointerup",endDrag);
+scene.addEventListener("pointercancel",function(){ drag=null; scene.classList.remove("dragging"); stage.classList.remove("instant"); });
+scene.addEventListener("pointerleave",function(){ if(!drag){ if(S.hover!==-1&&S.view==="cube"){S.hover=-1;applyTransforms();} hideTip(); } });
+scene.addEventListener("wheel",function(e){
+  if(S.view!=="cube") return;
+  e.preventDefault();
+  S.zoom=Math.max(0.55,Math.min(1.7,S.zoom*(e.deltaY<0?1.08:0.926)));
+  stage.classList.add("instant"); stage.style.transform=stageTransform(); void stage.offsetWidth; stage.classList.remove("instant");
+},{passive:false});
+function hoverAt(e){
+  var t=document.elementFromPoint(e.clientX,e.clientY);
+  var s=t&&t.closest&&t.closest(".slice");
+  if(S.view==="cube"){
+    var hi=s?Number(s.dataset.i):-1;
+    if(hi!==S.hover){ S.hover=hi; applyTransforms(); }
+  }
+  var hc=t&&t.closest&&t.closest(".hc");
+  if(hc){
+    var i=Number(hc.dataset.i), rv=C.rows[hc.dataset.r], cv=C.cols[hc.dataset.c], lv=C.layers[i];
+    var lines=[[rv+" × "+cv,"b"],[DIM_LABEL[S.assign.layer]+": "+lv,"t-sub"]];
+    if(hc.classList.contains("na")) lines.push(["Not applicable for this combination",""]);
+    else { var a=aggAt(rv,cv,lv); if(!a) lines.push(["No runs yet",""]); else METRICS.forEach(function(m){ lines.push([m.label+": "+(a[m.key]==null?"–":m.fmt(a[m.key])),""]); }); }
+    showTip(lines,e.clientX,e.clientY);
+  } else if(s){
+    showTip([[C.layers[Number(s.dataset.i)],"b"],[S.view==="cube"?"Click: lay out the layers":"Click: open this layer","t-sub"]],e.clientX,e.clientY);
+  } else hideTip();
+}
+var tip=$("tip");
+function showTip(lines,x,y){
+  tip.textContent=""; lines.forEach(function(l){ var d=el(l[1]==="b"?"b":"div",l[1]==="t-sub"?"t-sub":null,l[0]); tip.appendChild(d); });
+  tip.style.display="block";
+  var w=tip.offsetWidth, h=tip.offsetHeight, vw=window.innerWidth, vh=window.innerHeight;
+  var lx=x+14, ly=y+14; if(lx+w>vw-8) lx=x-w-14; if(ly+h>vh-8) ly=y-h-14;
+  tip.style.left=Math.max(8,lx)+"px"; tip.style.top=Math.max(8,ly)+"px";
+}
+function hideTip(){ tip.style.display="none"; }
+
+/* ---------- axis rotation (R) ---------- */
+function rotateAxes(){
+  if(S.busy) return;
+  var a=S.assign, next={row:a.layer, col:a.row, layer:a.col};
+  var msg="Rows: "+DIM_LABEL[next.row]+" · Columns: "+DIM_LABEL[next.col]+" · Layers: "+DIM_LABEL[next.layer];
+  if(S.view==="cube"){
+    S.busy=true; S.rot.ry+=90; stage.style.transform=stageTransform();
+    setTimeout(function(){
+      S.assign=next; S.layerIdx=0; S.focus={r:0,c:0}; S.rot.ry-=90;
+      instant(function(){ render(); });
+      S.busy=false; toast(msg);
+    }, dur());
+    return;
+  }
+  S.assign=next; S.layerIdx=0; S.focus={r:0,c:0};
+  if(S.view==="focus") slideTable(1,function(){ render(); }); else render();
+  toast(msg);
+}
+
+/* ================= focus table ================= */
+function renderFocusHead(){
+  var t=$("fvTitle"); t.textContent="";
+  if(S.best){ t.appendChild(document.createTextNode("Best across layers")); t.appendChild(el("small",null,"along the "+DIM_LABEL[S.assign.layer]+" axis, by "+metricBy(S.colorBy).label)); }
+  else { t.appendChild(document.createTextNode(C.layers[S.layerIdx]||"")); t.appendChild(el("small",null,DIM_LABEL[S.assign.layer]+" "+(S.layerIdx+1)+"/"+C.layers.length+" · rows "+DIM_LABEL[S.assign.row]+", columns "+DIM_LABEL[S.assign.col])); }
+  var dots=$("fvDots"); dots.textContent="";
+  C.layers.forEach(function(lv,i){ var d=el("i"); if(!S.best&&i===S.layerIdx) d.className="on"; d.title=lv; d.addEventListener("click",function(){ goLayer(i); }); dots.appendChild(d); });
+  $("fvBest").setAttribute("aria-pressed",String(S.best));
+  $("fvPrev").disabled = S.best; $("fvNext").disabled = S.best;
+}
+function infoLines(v){
+  var inf=MODEL_INFO[v]; if(!inf) return null;
+  return [[v,"b"],[inf.family,"t-sub"],[inf.zeroShot?"Zero-shot: only the \""+ZS_LOSS+"\" layer":"Trained: appears in the loss layers",""],["Source: "+inf.src,""]];
+}
+function headerCell(tag,cls,v){
+  var th=el(tag,cls,v);
+  var lines=infoLines(v);
+  if(lines){
+    th.classList.add("info"); th.tabIndex=0;
+    th.addEventListener("pointerenter",function(e){ showTip(lines,e.clientX,e.clientY); });
+    th.addEventListener("pointermove",function(e){ showTip(lines,e.clientX,e.clientY); });
+    th.addEventListener("pointerleave",hideTip);
+    th.addEventListener("focus",function(){ var r=th.getBoundingClientRect(); showTip(lines,r.right,r.top); });
+    th.addEventListener("blur",hideTip);
+  }
+  return th;
+}
+function renderTable(){
+  var t=$("cube"); t.textContent="";
+  var thead=el("thead"), hr=el("tr");
+  hr.appendChild(el("th","rowh corner",DIM_LABEL[S.assign.row]+" ↓ · "+DIM_LABEL[S.assign.col]+" →"));
+  C.cols.forEach(function(cv){ var th=headerCell("th",null,cv); th.scope="col"; hr.appendChild(th); });
+  thead.appendChild(hr); t.appendChild(thead);
+  var tb=el("tbody"), sel=metricBy(S.colorBy);
+  C.rows.forEach(function(rv,ri){
+    var tr=el("tr"), th=headerCell("th","rowh",rv); th.scope="row"; tr.appendChild(th);
+    C.cols.forEach(function(cv,ci){
+      var td=el("td"); td.setAttribute("role","gridcell");
+      var res=cellAgg(rv,cv,S.layerIdx,S.best), a=res.agg;
+      var c=el("div","cell"+(a?" has":"")+(!a&&res.na?" na":""));
+      c.tabIndex=(ri===S.focus.r&&ci===S.focus.c)?0:-1; c.dataset.r=ri; c.dataset.c=ci;
+      if(a){
+        if(S.pins.indexOf(keyOf(a.model,a.preprocess,a.loss))>=0) c.classList.add("pinned");
+        var s=score01(sel,a[sel.key]); c.style.setProperty("--t",s==null?"0%":Math.round(8+s*52)+"%");
+        METRICS.forEach(function(m){
+          var row=el("div","m"+(m.key===S.colorBy?" sel":""));
+          row.appendChild(el("span","k",m.short));
+          var bar=el("span","bar"), f=el("i"), sc=score01(m,a[m.key]); f.style.width=sc==null?"0%":Math.round(sc*100)+"%"; bar.appendChild(f); row.appendChild(bar);
+          row.appendChild(el("span","v",a[m.key]==null?"–":m.fmt(a[m.key])));
+          c.appendChild(row);
+        });
+        var foot=el("div","foot"); foot.appendChild(el("span",null,a.runs.length+(a.runs.length===1?" run":" runs"))); if(S.best&&res.layer) foot.appendChild(el("span",null,res.layer)); c.appendChild(foot);
+        c.setAttribute("aria-label",rv+", "+cv+(res.layer?", "+res.layer:"")+": "+METRICS.map(function(m){return m.label+" "+(a[m.key]==null?"none":m.fmt(a[m.key]));}).join(", "));
+      } else if(res.na){
+        var w=el("div"); w.style.textAlign="center"; w.appendChild(el("span","none","not applicable")); c.appendChild(w);
+        c.setAttribute("aria-label",rv+", "+cv+": not applicable");
+      } else {
+        c.appendChild(el("div","none","—")); c.setAttribute("aria-label",rv+", "+cv+": no results");
+      }
+      c.addEventListener("click",function(){ S.focus={r:ri,c:ci}; focusCell(); if(!c.classList.contains("na")) openDetail(); });
+      c.addEventListener("focus",function(){ S.focus={r:ri,c:ci}; });
+      td.appendChild(c); tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  fitFocus();
+}
+function focusCell(){
+  if(S.view!=="focus") return;
+  document.querySelectorAll("#cube .cell").forEach(function(c){ c.tabIndex=-1; });
+  var target=document.querySelector('#cube .cell[data-r="'+S.focus.r+'"][data-c="'+S.focus.c+'"]');
+  if(target){ target.tabIndex=0; target.focus({preventScroll:true}); target.scrollIntoView({block:"nearest",inline:"nearest"}); }
+}
+function fitFocus(){
+  if(S.view!=="focus") return;
+  var head=fv.querySelector(".fv-head"), body=$("fvBody");
+  var sb=Math.max(0,body.offsetHeight-body.clientHeight);
+  var h=head.offsetHeight+$("cube").offsetHeight+sb+2;
+  scene.style.height=Math.max(h,320)+"px";
+}
+function slideTable(dir,swap){
+  var body=$("fvBody");
+  var reduce=dur()<5 || !body.animate;
+  if(reduce){ swap(); return; }
+  var a=body.animate([{transform:"translateX(0)",opacity:1},{transform:"translateX("+(-dir*60)+"px)",opacity:0}],{duration:160,easing:"ease-in"});
+  a.onfinish=function(){
+    swap();
+    body.animate([{transform:"translateX("+(dir*60)+"px)",opacity:0},{transform:"translateX(0)",opacity:1}],{duration:220,easing:"cubic-bezier(.2,.8,.2,1)"});
+  };
+}
+function goLayer(i){
+  var n=C.layers.length; if(!n) return;
+  i=((i%n)+n)%n;
+  var dir = i>S.layerIdx ? 1 : -1;
+  if(S.view==="focus"){
+    if(i===S.layerIdx && !S.best) return;
+    slideTable(dir,function(){ S.best=false; S.layerIdx=i; instant(applyTransforms); renderTable(); renderFocusHead(); focusCell(); });
+  } else { S.layerIdx=i; applyTransforms(); }
+}
+$("fvPrev").addEventListener("click",function(){ goLayer(S.layerIdx-1); });
+$("fvNext").addEventListener("click",function(){ goLayer(S.layerIdx+1); });
+$("fvBest").addEventListener("click",function(){ toggleBest(); });
+$("fvBack").addEventListener("click",function(){ setView("spread"); });
+function toggleBest(){ slideTable(1,function(){ S.best=!S.best; renderTable(); renderFocusHead(); focusCell(); }); }
+
+/* ================= pins / rank ================= */
+function togglePin(k){
+  var i=S.pins.indexOf(k);
+  if(i>=0) S.pins.splice(i,1);
+  else { if(S.pins.length>=3){ toast("You can compare at most 3 combinations"); return false; } S.pins.push(k); }
+  renderTray(); if(S.view==="focus"){ renderTable(); focusCell(); }
+  return true;
+}
+function renderTray(){
+  var tray=$("tray"); tray.textContent="";
+  S.pins=S.pins.filter(function(k){ return !!C.aggs[k]; });
+  var aggs=S.pins.map(function(k){return C.aggs[k];});
+  var bestBy={};
+  METRICS.forEach(function(m){ var b=null; aggs.forEach(function(a,i){ if(a[m.key]==null) return; if(b==null||better(m,a[m.key],aggs[b][m.key])) b=i; }); bestBy[m.key]=b; });
+  aggs.forEach(function(a,i){
+    var d=el("div","pin"), h=el("div","pin-h"), nm=el("div"); nm.appendChild(el("div","pin-name",a.model)); nm.appendChild(el("div","pin-sub",a.preprocess+" · "+a.loss));
+    var x=el("button","x","×"); x.type="button"; x.setAttribute("aria-label","Remove"); x.addEventListener("click",function(){ togglePin(S.pins[i]); });
+    h.appendChild(nm); h.appendChild(x); d.appendChild(h);
+    METRICS.forEach(function(m){
+      var r=el("div","m"+(aggs.length>1&&bestBy[m.key]===i?" win":"")); r.appendChild(el("span",null,m.label));
+      var bar=el("span","bar"), f=el("i"), sc=score01(m,a[m.key]); f.style.width=sc==null?"0%":Math.round(sc*100)+"%"; bar.appendChild(f); r.appendChild(bar);
+      r.appendChild(el("span","v",a[m.key]==null?"–":m.fmt(a[m.key]))); d.appendChild(r);
+    });
+    tray.appendChild(d);
+  });
+  $("trayEmpty").hidden=aggs.length>0;
+}
+function renderRank(){
+  var m=metricBy(S.colorBy);
+  $("rankTitle").textContent="Top combinations: "+m.label;
+  var list=Object.keys(C.aggs).map(function(k){return C.aggs[k];}).filter(function(a){return a[m.key]!=null;});
+  list.sort(function(a,b){ return m.better==="high"?b[m.key]-a[m.key]:a[m.key]-b[m.key]; });
+  var ol=$("rank"); ol.textContent="";
+  list.slice(0,8).forEach(function(a){
+    var li=el("li"); li.tabIndex=0;
+    var mid=el("div"); mid.appendChild(el("div","rk-name",a.model)); mid.appendChild(el("div","rk-sub",a.preprocess+" · "+a.loss+" · "+a.runs.length+(a.runs.length===1?" run":" runs")));
+    li.appendChild(mid); li.appendChild(el("span","rk-v",m.fmt(a[m.key])));
+    function go(){ jumpTo(a); }
+    li.addEventListener("click",go); li.addEventListener("keydown",function(e){ if(e.key==="Enter"){e.preventDefault();go();} });
+    ol.appendChild(li);
+  });
+  $("rankEmpty").hidden=list.length>0;
+}
+function jumpTo(a){
+  var li=C.layers.indexOf(a[S.assign.layer]), r=C.rows.indexOf(a[S.assign.row]), c=C.cols.indexOf(a[S.assign.col]);
+  if(r>=0) S.focus.r=r; if(c>=0) S.focus.c=c;
+  scene.scrollIntoView({block:"nearest",behavior:"smooth"});
+  if(S.view==="focus"){ goLayer(li>=0?li:S.layerIdx); if(S.best){S.best=false; renderTable(); renderFocusHead(); focusCell();} }
+  else openLayer(li>=0?li:0);
+}
+
+/* ================= controls / render ================= */
+function fillSelect(sel,items,value){ sel.textContent=""; items.forEach(function(it){ var o=el("option",null,it.label); o.value=it.value; sel.appendChild(o); }); sel.value=value; }
+function renderControls(){
+  var dimItems=DIMS.map(function(d){return {value:d,label:DIM_LABEL[d]};});
+  fillSelect($("axRow"),dimItems,S.assign.row); fillSelect($("axCol"),dimItems,S.assign.col); fillSelect($("axLayer"),dimItems,S.assign.layer);
+  fillSelect($("colorBy"),METRICS.map(function(m){return {value:m.key,label:m.label+(m.better==="high"?" (higher is better)":" (lower is better)")};}),S.colorBy);
+  var teams={}; DEFAULT_TEAMS.forEach(function(t){teams[t]=1;}); allRuns().forEach(function(r){ if(r.team) teams[r.team]=1; });
+  fillSelect($("fTeam"),[{value:"",label:"All"}].concat(Object.keys(teams).map(function(t){return {value:t,label:t};})),S.fTeam);
+  var trains={}; allRuns().forEach(function(r){ if(r.trainN!=null) trains[String(r.trainN)]=1; });
+  var tl=Object.keys(trains).sort(function(a,b){return Number(a)-Number(b);});
+  if(S.fTrain!==""&&!trains[S.fTrain]) S.fTrain="";
+  fillSelect($("fTrain"),[{value:"",label:"All"}].concat(tl.map(function(t){return {value:t,label:t==="0"?"0 (zero-shot)":t};})),S.fTrain);
+  $("hideEmpty").checked=S.hideEmpty;
+  [["dlTeam",Object.keys(teams)],["dlModel",C.vals.model],["dlPre",C.vals.preprocess],["dlLoss",C.vals.loss]].forEach(function(p){
+    var dl=$(p[0]); dl.textContent=""; (p[1]||[]).forEach(function(v){ var o=el("option"); o.value=v; dl.appendChild(o); });
+  });
+}
+function renderStatus(){
+  var s=$("status"), nl=S.localRuns.length; s.textContent="";
+  var b=el("b");
+  if(S.dbState==="on"){ b.textContent="Connected to the shared table"; s.appendChild(b); s.appendChild(document.createTextNode(" · "+S.dbRuns.length+" shared runs"+(nl?" · "+nl+" in this session only":"")+(S.canWrite===false?" · view-only access":""))); }
+  else if(S.dbState==="connecting") s.appendChild(document.createTextNode("Connecting to the shared table…"));
+  else { b.textContent="Local mode"; s.appendChild(b); s.appendChild(document.createTextNode(" · the shared table is unreachable, results you enter stay in this session · "+allRuns().length+" runs")); }
+}
+function render(){
+  compute(); renderControls(); buildScene(); applyTransforms();
+  if(S.view==="focus"){ renderTable(); renderFocusHead(); }
+  renderRank(); renderTray(); renderStatus();
+  if(S.detailKey && $("dDetail").classList.contains("open")) renderDetail();
+}
+function setAxis(role,dim){
+  var other=null; Object.keys(S.assign).forEach(function(k){ if(k!==role&&S.assign[k]===dim) other=k; });
+  if(other) S.assign[other]=S.assign[role];
+  S.assign[role]=dim; S.layerIdx=0; S.focus={r:0,c:0}; render(); if(S.view==="focus") focusCell();
+}
+$("axRow").addEventListener("change",function(e){ setAxis("row",e.target.value); });
+$("axCol").addEventListener("change",function(e){ setAxis("col",e.target.value); });
+$("axLayer").addEventListener("change",function(e){ setAxis("layer",e.target.value); });
+$("colorBy").addEventListener("change",function(e){ S.colorBy=e.target.value; render(); });
+$("fTeam").addEventListener("change",function(e){ S.fTeam=e.target.value; render(); });
+$("fTrain").addEventListener("change",function(e){ S.fTrain=e.target.value; render(); });
+$("hideEmpty").addEventListener("change",function(e){ S.hideEmpty=e.target.checked; S.focus={r:0,c:0}; render(); });
+$("btnCube").addEventListener("click",function(){ setView("cube"); });
+$("btnSpread").addEventListener("click",function(){ setView("spread"); });
+$("btnResetView").addEventListener("click",function(){ S.rot={rx:-18,ry:-32}; S.zoom=1; applyTransforms(); });
+var rzT; window.addEventListener("resize",function(){ clearTimeout(rzT); rzT=setTimeout(function(){ if(S.view==="focus"){ fitFocus(); return; } instant(function(){ buildScene(); applyTransforms(); }); },120); });
+
+/* ================= keyboard ================= */
+document.addEventListener("keydown",function(e){
+  var t=e.target, tag=t&&t.tagName;
+  if(e.key==="Escape" && anyDrawerOpen()){ e.preventDefault(); closeDrawers(); return; }
+  if(anyDrawerOpen()) return;
+  if(tag==="INPUT"||tag==="SELECT"||tag==="TEXTAREA"||(t&&t.isContentEditable)) return;
+  if(e.metaKey||e.ctrlKey||e.altKey) return;
+  var inScene = scene.contains(t) || t===document.body;
+  if(!inScene) return;
+  var k=e.key;
+  if(k==="r"||k==="R"){ e.preventDefault(); rotateAxes(); return; }
+  if(/^[1-9]$/.test(k)){ var n=Number(k)-1; if(n<C.layers.length){ e.preventDefault(); if(S.view==="focus") goLayer(n); else openLayer(n); } return; }
+  if(S.view==="cube"){
+    if(k==="ArrowLeft"||k==="ArrowRight"||k==="ArrowUp"||k==="ArrowDown"){
+      e.preventDefault();
+      if(k==="ArrowLeft") S.rot.ry-=12; if(k==="ArrowRight") S.rot.ry+=12;
+      if(k==="ArrowUp") S.rot.rx=Math.min(80,S.rot.rx+10); if(k==="ArrowDown") S.rot.rx=Math.max(-80,S.rot.rx-10);
+      applyTransforms(); return;
+    }
+    if(k==="Enter"||k===" "){ e.preventDefault(); setView("spread"); return; }
+    if(k==="+"||k==="="){ S.zoom=Math.min(1.7,S.zoom*1.1); applyTransforms(); return; }
+    if(k==="-"){ S.zoom=Math.max(0.55,S.zoom/1.1); applyTransforms(); return; }
+    return;
+  }
+  if(S.view==="spread"){
+    if(k==="ArrowLeft"||k==="ArrowUp"){ e.preventDefault(); goLayer(S.layerIdx-1); updateHud(); return; }
+    if(k==="ArrowRight"||k==="ArrowDown"){ e.preventDefault(); goLayer(S.layerIdx+1); updateHud(); return; }
+    if(k==="Enter"||k===" "){ e.preventDefault(); openLayer(S.layerIdx); return; }
+    if(k==="Escape"){ e.preventDefault(); setView("cube"); return; }
+    return;
+  }
+  // focus
+  if(k==="Escape"){ e.preventDefault(); setView("spread"); return; }
+  if(k==="q"||k==="Q"||k==="PageUp"){ e.preventDefault(); goLayer(S.layerIdx-1); return; }
+  if(k==="e"||k==="E"||k==="PageDown"){ e.preventDefault(); goLayer(S.layerIdx+1); return; }
+  if(k==="b"||k==="B"){ e.preventDefault(); toggleBest(); return; }
+  var inGrid=t&&t.classList&&t.classList.contains("cell");
+  if(k==="ArrowLeft"||k==="ArrowRight"||k==="ArrowUp"||k==="ArrowDown"){
+    if(tag==="BUTTON") return;
+    e.preventDefault();
+    if(k==="ArrowLeft") S.focus.c=Math.max(0,S.focus.c-1);
+    if(k==="ArrowRight") S.focus.c=Math.min(C.cols.length-1,S.focus.c+1);
+    if(k==="ArrowUp") S.focus.r=Math.max(0,S.focus.r-1);
+    if(k==="ArrowDown") S.focus.r=Math.min(C.rows.length-1,S.focus.r+1);
+    focusCell(); return;
+  }
+  if(inGrid && k==="Enter"){ e.preventDefault(); if(!t.classList.contains("na")) openDetail(); return; }
+  if(inGrid && (k==="p"||k==="P")){
+    e.preventDefault();
+    var res=cellAgg(C.rows[S.focus.r],C.cols[S.focus.c],S.layerIdx,S.best);
+    if(res.agg) togglePin(keyOf(res.agg.model,res.agg.preprocess,res.agg.loss)); else toast("This cell has no result to pin");
+  }
+});
+
+/* ================= drawers ================= */
+function anyDrawerOpen(){ return !!document.querySelector(".drawer.open"); }
+var lastFocus=null;
+function openDrawer(id){
+  hideTip();
+  lastFocus=document.activeElement;
+  document.querySelectorAll(".drawer.open").forEach(function(d){d.classList.remove("open");});
+  $(id).classList.add("open"); $("scrim").classList.add("show");
+  var f=$(id).querySelector("input,button,select,textarea"); if(f) setTimeout(function(){f.focus();},60);
+}
+function closeDrawers(){
+  document.querySelectorAll(".drawer.open").forEach(function(d){d.classList.remove("open");});
+  $("scrim").classList.remove("show"); S.detailKey=null;
+  if(S.view==="focus") focusCell(); else if(lastFocus&&lastFocus.focus) lastFocus.focus({preventScroll:true});
+}
+document.querySelectorAll("[data-close]").forEach(function(b){ b.addEventListener("click",closeDrawers); });
+$("scrim").addEventListener("click",closeDrawers);
+
+function openDetail(){
+  var rv=C.rows[S.focus.r], cv=C.cols[S.focus.c]; if(rv==null||cv==null) return;
+  var res=cellAgg(rv,cv,S.layerIdx,S.best), lv=res.layer||C.layers[S.layerIdx], c=combo(rv,cv,lv);
+  S.detailKey=keyOf(c.model,c.preprocess,c.loss); renderDetail(); openDrawer("dDetail");
+}
+function renderDetail(){
+  var p=splitKey(S.detailKey), a=C.aggs[S.detailKey];
+  $("detTitle").textContent=p.model;
+  $("detCombo").textContent=p.preprocess+" · "+p.loss+(S.fTeam?" · "+S.fTeam:"")+(S.fTrain!==""?" · "+S.fTrain+" images":"");
+  var body=$("detBody"); body.textContent="";
+  var inf=MODEL_INFO[p.model];
+  if(inf){ var ib=el("div","info-box"); ib.textContent=inf.family+" · "+(inf.zeroShot?"zero-shot":"trained")+" · Source: "+inf.src; body.appendChild(ib); }
+  if(!a){
+    body.appendChild(el("p",null,"No runs for this combination yet."));
+    var b=el("button","primary","Add a result to this combination"); b.addEventListener("click",function(){ openAdd(p); }); body.appendChild(b); return;
+  }
+  var sum=el("div","summary");
+  METRICS.forEach(function(m){
+    var d=el("div"); d.appendChild(el("div","lbl",m.label)); d.appendChild(el("div","val",a[m.key]==null?"–":m.fmt(a[m.key])));
+    var s=a[m.key+"_sd"]; d.appendChild(el("div","sd",a[m.key+"_n"]+(a[m.key+"_n"]===1?" value":" values")+(s!=null?" · ± "+(m.key==="lenErr"?s.toFixed(1)+"%":s.toFixed(3)):""))); sum.appendChild(d);
+  });
+  body.appendChild(sum);
+  var wrap=el("div"); wrap.style.overflowX="auto";
+  var t=el("table","runs"), thr=el("tr");
+  ["Team","Seed","Train",METRICS[0].short,METRICS[1].short,METRICS[2].short,""].forEach(function(h){ thr.appendChild(el("th",null,h)); });
+  var th=el("thead"); th.appendChild(thr); t.appendChild(th);
+  var tb=el("tbody");
+  a.runs.forEach(function(r){
+    var tr=el("tr"), tdT=el("td"); tdT.appendChild(el("div",null,r.team||"–"));
+    if(r._src==="local") tdT.appendChild(el("span","tag","bu oturum"));
+    if(r.notes) tdT.appendChild(el("div","note",r.notes));
+    tr.appendChild(tdT);
+    tr.appendChild(el("td","num",r.seed==null?"–":String(r.seed)));
+    tr.appendChild(el("td","num",r.trainN==null?"–":String(r.trainN)));
+    METRICS.forEach(function(m){ tr.appendChild(el("td","num",r[m.key]==null?"–":m.fmt(r[m.key]))); });
+    var tdx=el("td");
+    if(r._src==="local"||(r._src==="db"&&S.canWrite!==false)){ var del=el("button","link","Sil"); del.type="button"; del.addEventListener("click",function(){ deleteRun(r,del); }); tdx.appendChild(del); }
+    tr.appendChild(tdx); tb.appendChild(tr);
+  });
+  t.appendChild(tb); wrap.appendChild(t); body.appendChild(wrap);
+  var row=el("div"); row.style.cssText="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap";
+  var pinned=S.pins.indexOf(S.detailKey)>=0;
+  var pb=el("button",null,pinned?"Remove from compare":"Add to compare"); pb.addEventListener("click",function(){ if(togglePin(S.detailKey)) renderDetail(); });
+  var add=el("button",null,"Add a result to this combination"); add.addEventListener("click",function(){ openAdd(p); });
+  row.appendChild(pb); row.appendChild(add); body.appendChild(row);
+}
+function deleteRun(r,btn){
+  if(btn.dataset.armed!=="1"){ btn.dataset.armed="1"; btn.textContent="Emin misin?"; return; }
+  if(r._src==="local"){ S.localRuns=S.localRuns.filter(function(x){return x!==r;}); render(); toast("Run deleted"); return; }
+  if(!S.db) return;
+  btn.disabled=true;
+  S.db.collection("runs").doc(r.id).delete().then(function(){ toast("Run deleted"); }).catch(function(e){
+    btn.disabled=false; if(e&&e.code==="invalid_argument"){ S.canWrite=false; toast("You don't have permission to delete this run"); } else toast("Couldn't delete, try again");
+  });
+}
+
+/* ================= add form ================= */
+function openAdd(pre){
+  ["iModel","iPre","iLoss","iSeed","iTrain","iF1","iCl","iLen","iNote"].forEach(function(id){ $(id).value=""; });
+  if(!$("iTeam").value&&S.fTeam) $("iTeam").value=S.fTeam;
+  pre=pre||{};
+  if(!pre.model && S.view==="focus" && !S.best){ var rv=C.rows[S.focus.r], cv=C.cols[S.focus.c]; if(rv!=null&&cv!=null) pre=combo(rv,cv,C.layers[S.layerIdx]); }
+  $("iModel").value=pre.model||""; $("iPre").value=pre.preprocess||""; $("iLoss").value=pre.loss||"";
+  $("addMsg").textContent=""; $("addMsg").className="msg";
+  openDrawer("dAdd");
+}
+function validateRun(run){
+  var errs=[];
+  if(!run.model) errs.push("model"); if(!run.preprocess) errs.push("preprocess"); if(!run.loss) errs.push("loss");
+  if(errs.length) return "Missing field: "+errs.join(", ")+".";
+  if(!applicable(run)){ var inf=MODEL_INFO[run.model]; return inf.zeroShot ? run.model+" is a zero-shot model; loss must be \""+ZS_LOSS+"\"." : run.model+" is a trained model; choose a loss (not \""+ZS_LOSS+"\")."; }
+  var any=false;
+  for(var i=0;i<METRICS.length;i++){ var m=METRICS[i], v=run[m.key]; if(v==null) continue; any=true; if(v<m.min||v>m.max) return m.label+" "+(m.max===Infinity?"must be 0 or more.":"must be between 0 and 1."); }
+  if(!any) return "Enter at least one metric.";
+  return null;
+}
+function readForm(){
+  var team=str($("iTeam").value); if(!team) return {err:"Team is empty."};
+  var seedRaw=str($("iSeed").value), trRaw=str($("iTrain").value);
+  var run={team:team, model:str($("iModel").value), preprocess:str($("iPre").value), loss:str($("iLoss").value), notes:str($("iNote").value),
+    seed:seedRaw===""?null:num(seedRaw), trainN:trRaw===""?null:num(trRaw),
+    somaF1:num($("iF1").value), clDice:num($("iCl").value), lenErr:num($("iLen").value)};
+  if(seedRaw!==""&&run.seed==null) return {err:"Seed must be a number."};
+  if(trRaw!==""&&(run.trainN==null||run.trainN<0)) return {err:"Training images must be 0 or a positive number."};
+  var bad=[["iF1","somaF1"],["iCl","clDice"],["iLen","lenErr"]].filter(function(p){ return str($(p[0]).value)!==""&&run[p[1]]==null; });
+  if(bad.length) return {err:"Metric values must be numbers."};
+  var err=validateRun(run); if(err) return {err:err};
+  return {run:run};
+}
+$("btnSave").addEventListener("click",function(){
+  var res=readForm(), msg=$("addMsg");
+  if(res.err){ msg.className="msg err"; msg.textContent=res.err; return; }
+  var run=res.run; run.createdAt=new Date().toISOString(); run.source="form";
+  if(S.db&&S.canWrite!==false){
+    if(S.uid) run.by=S.uid;
+    $("btnSave").disabled=true;
+    S.db.collection("runs").add(run).then(function(){ $("btnSave").disabled=false; toast("Saved"); closeDrawers(); })
+    .catch(function(e){
+      $("btnSave").disabled=false; msg.className="msg err";
+      if(e&&e.code==="invalid_argument"){ S.canWrite=false; addLocal(run); msg.textContent="You can't write to the shared table; the result was added to this session only."; render(); }
+      else if(e&&e.code==="quota_exceeded") msg.textContent="The shared table is full. Delete old runs or tell the table owner.";
+      else msg.textContent="Couldn't save ("+(e&&e.code||"unknown error")+"). Try again.";
+    });
+  } else { addLocal(run); toast("Added to this session"); closeDrawers(); render(); }
+});
+var localSeq=0;
+function addLocal(run){ var r=normalizeRun(run); r._src="local"; r.id="local-"+(++localSeq); S.localRuns.push(r); }
+$("btnAdd").addEventListener("click",function(){ openAdd(); });
+
+/* ================= CSV ================= */
+function parseCSV(text){
+  text=text.replace(/^\uFEFF/,"");
+  var first=text.split(/\r?\n/)[0]||"", delim=(first.split(";").length>first.split(",").length)?";":",";
+  var rows=[],row=[],cur="",q=false;
+  for(var i=0;i<text.length;i++){
+    var ch=text[i];
+    if(q){ if(ch==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=ch; }
+    else { if(ch==='"') q=true; else if(ch===delim){row.push(cur);cur="";} else if(ch==="\n"){row.push(cur);rows.push(row);row=[];cur="";} else if(ch!=="\r") cur+=ch; }
+  }
+  if(cur!==""||row.length){row.push(cur);rows.push(row);}
+  return rows.filter(function(r){ return r.some(function(c){return String(c).trim()!=="";}); });
+}
+function csvToRuns(text){
+  var rows=parseCSV(text);
+  if(rows.length<2) return {err:"The file needs a header row and at least one run."};
+  var head=rows[0].map(function(h){return h.trim().toLowerCase();}), idx={};
+  Object.keys(CSV_ALIASES).forEach(function(k){ for(var i=0;i<head.length;i++){ if(CSV_ALIASES[k].indexOf(head[i])>=0){idx[k]=i;break;} } });
+  var missing=["model","preprocess","loss"].filter(function(k){return idx[k]==null;});
+  if(missing.length) return {err:"Missing column: "+missing.join(", ")+". Expected headers are listed below."};
+  var runs=[],bad=[];
+  rows.slice(1).forEach(function(r,li){
+    function g(k){ return idx[k]==null?"":(r[idx[k]]||"").trim(); }
+    var run={team:legacy(g("team")),model:legacy(g("model")),preprocess:legacy(g("preprocess")),loss:legacy(g("loss")),
+      seed:g("seed")===""?null:num(g("seed")),trainN:g("train_n")===""?null:num(g("train_n")),
+      somaF1:num(g("soma_f1")),clDice:num(g("cldice")),lenErr:num(g("len_err")),notes:g("notes")};
+    if(validateRun(run)) bad.push(li+2); else runs.push(run);
+  });
+  return {runs:runs,bad:bad};
+}
+function handleFile(file){
+  var msg=$("impMsg"); if(!file) return;
+  var reader=new FileReader();
+  reader.onload=function(){
+    var res=csvToRuns(String(reader.result||""));
+    if(res.err){ msg.className="msg err"; msg.textContent=res.err; $("impActions").style.display="none"; S.pendingImport=[]; return; }
+    S.pendingImport=res.runs;
+    msg.className="msg"+(res.runs.length?" ok":" err");
+    msg.textContent=res.runs.length+" runs read"+(res.bad.length?"; "+res.bad.length+" rows skipped (row "+res.bad.slice(0,8).join(", ")+(res.bad.length>8?"…":"")+": missing field, metric out of range, or model and loss don't match)":"")+".";
+    $("impActions").style.display=res.runs.length?"flex":"none";
+    $("btnImpShared").hidden=!(S.db&&S.canWrite!==false);
+  };
+  reader.onerror=function(){ msg.className="msg err"; msg.textContent="Couldn't read the file."; };
+  reader.readAsText(file);
+}
+$("btnPick").addEventListener("click",function(){ $("fileInput").click(); });
+$("fileInput").addEventListener("change",function(e){ handleFile(e.target.files[0]); e.target.value=""; });
+var drop=$("drop");
+["dragenter","dragover"].forEach(function(ev){ drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add("over");}); });
+["dragleave","drop"].forEach(function(ev){ drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove("over");}); });
+drop.addEventListener("drop",function(e){ handleFile(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]); });
+$("btnImpLocal").addEventListener("click",function(){ var n=S.pendingImport.length; S.pendingImport.forEach(addLocal); S.pendingImport=[]; toast(n+" runs added to this session"); closeDrawers(); render(); });
+$("btnImpShared").addEventListener("click",function(){
+  if(!S.db) return;
+  var list=S.pendingImport.slice(), btn=$("btnImpShared"), msg=$("impMsg"), done=0, stamp=new Date().toISOString();
+  btn.disabled=true;
+  function next(){
+    if(!list.length){ btn.disabled=false; S.pendingImport=[]; toast(done+" runs written to the shared table"); closeDrawers(); return; }
+    var r=list.shift(), doc={team:r.team,model:r.model,preprocess:r.preprocess,loss:r.loss,seed:r.seed,trainN:r.trainN,somaF1:r.somaF1,clDice:r.clDice,lenErr:r.lenErr,notes:r.notes,createdAt:stamp,source:"csv"};
+    if(S.uid) doc.by=S.uid;
+    S.db.collection("runs").add(doc).then(function(){ done++; msg.className="msg"; msg.textContent=done+" / "+(done+list.length)+" written…"; next(); })
+    .catch(function(e){
+      btn.disabled=false; msg.className="msg err"; S.pendingImport=[r].concat(list);
+      if(e&&e.code==="invalid_argument"){ S.canWrite=false; msg.textContent="You can't write to the shared table. "+done+" runs written; you can show the rest in this session."; }
+      else if(e&&e.code==="quota_exceeded") msg.textContent="The shared table is full. "+done+" runs written.";
+      else msg.textContent="Writing stopped ("+(e&&e.code||"error")+"). "+done+" runs written.";
+    });
+  }
+  next();
+});
+$("tpl").textContent=CSV_COLS.join(",")+"\nTeam A,micro-sam FT,CLAHE,Dice + clDice,0,40,0.91,0.68,12.4,commit a1b2c3";
+function toCSV(runs){
+  function q(v){ if(v==null) return ""; var s=String(v); return /[",\n;]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
+  var lines=[CSV_COLS.join(",")];
+  runs.forEach(function(r){ lines.push([r.team,r.model,r.preprocess,r.loss,r.seed,r.trainN,r.somaF1,r.clDice,r.lenErr,r.notes].map(q).join(",")); });
+  return lines.join("\n")+"\n";
+}
+function saveFile(name,text){
+  if(!S.dl){ toast("Downloads aren't available in this view"); return; }
+  S.dl.save({filename:name,data:text}).then(function(){ toast("Downloaded"); }).catch(function(e){ if(e&&e.code==="declined") return; toast("Couldn't download ("+(e&&e.code||"error")+")"); });
+}
+$("btnExport").addEventListener("click",function(){ var runs=allRuns(); if(!runs.length){ toast("No runs to export"); return; } saveFile("pc12_score_runs.csv",toCSV(runs)); });
+$("btnTpl").addEventListener("click",function(){ saveFile("pc12_score_template.csv",CSV_COLS.join(",")+"\n"); });
+$("btnImport").addEventListener("click",function(){ $("impMsg").textContent=""; $("impActions").style.display="none"; openDrawer("dImport"); });
+
+/* ================= model table ================= */
+(function(){
+  var tb=document.querySelector("#modelTable tbody");
+  Object.keys(MODEL_INFO).forEach(function(k){
+    var inf=MODEL_INFO[k], tr=el("tr");
+    tr.appendChild(el("td",null,k));
+    var td=el("td"); td.appendChild(el("span","pill "+(inf.zeroShot?"zs":"tr"),inf.zeroShot?"zero-shot":"trained")); tr.appendChild(td);
+    tr.appendChild(el("td",null,inf.family)); tr.appendChild(el("td",null,inf.src));
+    tb.appendChild(tr);
+  });
+})();
+
+/* ================= start ================= */
+instant(render);
+
+var hasClaude=typeof window.claude!=="undefined"&&window.claude&&typeof window.claude.use==="function";
+if(!hasClaude){ S.dbState="off"; renderStatus(); }
+else {
+  window.claude.use("downloads").then(function(d){ S.dl=d||null; }).catch(function(){ S.dl=null; });
+  Promise.all([window.claude.use("db").catch(function(){return null;}), window.claude.use("user").catch(function(){return null;})]).then(function(res){
+    var db=res[0], user=res[1];
+    if(user){
+      Promise.resolve(user.can("data.write")).then(function(v){ S.canWrite=(v===true||v===false)?v:null; renderStatus(); }).catch(function(){});
+      Promise.resolve(user.id()).then(function(id){ S.uid=id||null; }).catch(function(){});
+    }
+    if(!db){ S.dbState="off"; renderStatus(); return; }
+    S.db=db; S.dbState="on"; renderStatus();
+    db.collection("runs").limit(1000).onSnapshot(function(snap){
+      S.dbRuns=snap.docs.map(function(d){ var o=Object.assign({},d.data()||{}); o.id=d.id; o._src="db"; return normalizeRun(o); });
+      var keepFocus = S.view==="focus" && document.activeElement && document.activeElement.classList && document.activeElement.classList.contains("cell");
+      instant(render);
+      if(keepFocus) focusCell();
+    },function(){ S.db=null; S.dbState="off"; renderStatus(); toast("Lost connection to the shared table; switched to local mode"); });
+  });
+}
+})();
+</script>
+</body>
+</html>
